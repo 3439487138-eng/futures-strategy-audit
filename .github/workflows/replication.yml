@@ -1,0 +1,84 @@
+name: Rebuild audited futures strategies
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: replication-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  replicate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          cache: ""
+
+      - name: Install pinned project dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip==25.2
+          python -m pip install -r requirements.lock
+          python -m pip install -e . --no-deps
+
+      - name: Run unit and accounting tests
+        run: |
+          set -euo pipefail
+          python -m pytest
+
+      - name: Scan publication boundary before acquisition
+        run: |
+          set -euo pipefail
+          python scripts/security_scan.py
+
+      - name: Fetch official data and run every published strategy
+        run: |
+          set -euo pipefail
+          python -m futures_audit.cli run --config configs/base.toml
+
+      - name: Validate fresh ledgers metrics and report
+        run: |
+          set -euo pipefail
+          python -m futures_audit.cli validate
+          python scripts/security_scan.py
+
+      - name: Upload self-contained report and safe derived outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: futures-replication-report
+          path: |
+            reports/replication_report.html
+            reports/report_payload.json
+            outputs/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit and push repository changes
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          if git diff --cached --quiet; then
+            echo "No repository changes to commit."
+          else
+            git commit -m "chore: update replication outputs (run ${RUN_ID})"
+            git push origin "HEAD:${TARGET_BRANCH}"
+          fi

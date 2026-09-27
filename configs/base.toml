@@ -1,0 +1,92 @@
+[run]
+start_date = "2025-01-01"
+end_date = "auto"
+initial_capital = 10000000.0
+annual_risk_target = 0.20
+max_margin_fraction = 0.60
+max_gross_leverage = 4.0
+roll_buffer_calendar_days = 10
+workers = 6
+
+[signal]
+ewmac_fast_spans = [2, 4, 8, 16, 32, 64]
+ewmac_scalars = [12.1, 8.53, 5.95, 4.10, 2.79, 1.91]
+forecast_diversification_multiplier = 1.26
+forecast_cap = 20.0
+volatility_span = 32
+minimum_volatility_observations = 64
+position_buffer_fraction = 0.10
+relative_value_span = 60
+
+[instruments.IF]
+exchange = "CFFEX"
+multiplier = 300.0
+tick_size = 0.2
+margin_rate = 0.15
+commission_rate = 0.000023
+commission_fixed = 0.0
+slippage_ticks = 1.0
+last_trade_rule = "third_friday"
+spec_url = "https://www.cffex.com.cn/cn/hs300.html"
+
+[instruments.TF]
+exchange = "CFFEX"
+multiplier = 10000.0
+tick_size = 0.005
+margin_rate = 0.04
+commission_rate = 0.0
+commission_fixed = 3.0
+slippage_ticks = 1.0
+last_trade_rule = "second_friday"
+spec_url = "https://www.cffex.com.cn/cn/5tf.html"
+
+[instruments.T]
+exchange = "CFFEX"
+multiplier = 10000.0
+tick_size = 0.005
+margin_rate = 0.05
+commission_rate = 0.0
+commission_fixed = 3.0
+slippage_ticks = 1.0
+last_trade_rule = "second_friday"
+spec_url = "https://www.cffex.com.cn/cn/10t.html"
+
+[instruments.CU]
+exchange = "SHFE"
+multiplier = 5.0
+tick_size = 10.0
+margin_rate = 0.15
+commission_rate = 0.00005
+commission_fixed = 0.0
+slippage_ticks = 1.0
+last_trade_rule = "day_15"
+spec_url = "https://www.shfe.com.cn/regulation/exchangerules/productrules/"
+
+[instruments.RB]
+exchange = "SHFE"
+multiplier = 10.0
+tick_size = 1.0
+margin_rate = 0.13
+commission_rate = 0.00010
+commission_fixed = 0.0
+slippage_ticks = 1.0
+last_trade_rule = "day_15"
+spec_url = "https://www.shfe.com.cn/regulation/exchangerules/productrules/"
+
+[strategies.S09-IF-T]
+kind = "ewmac_portfolio"
+instruments = ["IF", "T"]
+weights = [0.5, 0.5]
+fidelity = "adapted"
+
+[strategies.S28-TF-T]
+kind = "relative_value"
+instruments = ["TF", "T"]
+weights = [0.5, 0.5]
+fidelity = "adapted"
+
+[strategies.S09-SHFE-CU-RB]
+kind = "ewmac_portfolio"
+instruments = ["CU", "RB"]
+weights = [0.5, 0.5]
+fidelity = "public-data proxy version"
