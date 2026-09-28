@@ -103,6 +103,7 @@ def render_report(root: Path, metrics: dict, manifest: dict, outputs: dict[str, 
     )
     coverage = manifest["coverage"]
     gaps = manifest["calendar_gaps"]
+    trailing_no_target = manifest.get("trailing_no_target_contract_rows", [])
     source_summary = "".join(
         f"<li>{exchange}: {values['start']} to {values['end']}; {values['trading_days']} observed trading days</li>"
         for exchange, values in coverage.items()
@@ -133,7 +134,8 @@ code{{background:#f2f4f7;padding:2px 4px}} </style></head><body>
 <p>Retrieved rows: {manifest['normalized_rows']:,}; contracts: {manifest['contract_count']}; retrieval manifest contains URL, UTC time, byte count and SHA-256 for every response.</p>
 <p>CFFEX source: official monthly ZIP files. SHFE source: official daily JSON. Observed exchange files define the trading calendar; cross-exchange mismatches inside shared coverage fail the run. CFFEX transport uses the official HTTP endpoint because HTTPS timed out in the audited environment; hashes are retained.</p>
 <p>Signals use closing data after day t. Orders execute no earlier than day t+1 at the official reported open, only when volume is positive. Daily P&amp;L is marked to settlement. Fixed conservative margin rates and transparent cost/slippage assumptions are configuration inputs, not claims of reconstructed historical broker schedules.</p>
-<p>Calendar differences recorded: CFFEX-only {len(gaps['CFFEX_only'])}; SHFE-only {len(gaps['SHFE_only'])}.</p></section>
+<p>Calendar differences recorded: CFFEX-only {len(gaps['CFFEX_only'])}; SHFE-only {len(gaps['SHFE_only'])}.</p>
+<p>Trailing SHFE HTTP-200 responses without CU/RB rows: {html.escape(', '.join(trailing_no_target) or 'none')}. These are not accepted as market observations.</p></section>
 <section><h2>Fidelity Gaps and Limitations</h2><ul>
 <li>The original notebooks queried continuous/root symbols and did not specify a valid delivery-contract roll. The new roll uses prior-close open interest and exits before estimated last trade dates.</li>
 <li>Additive same-contract close changes create signal-only series; all P&amp;L uses raw contracts, so roll jumps are never booked as returns.</li>
@@ -154,9 +156,9 @@ code{{background:#f2f4f7;padding:2px 4px}} </style></head><body>
         "methodology": ["prior-close signal / next-open execution", "real delivery contracts", "daily settlement mark-to-market"],
         "assumptions": ["fixed conservative margin and costs", "zero risk-free rate for Sharpe"],
         "fidelity_gaps": ["adapted roll rules", "daily bars do not prove intraday fills"],
+        "trailing_no_target_contract_rows": trailing_no_target,
         "figures": ["embedded SVG equity and drawdown"],
         "tables": ["metrics", "holdings", "transactions", "strategy inventory"],
     }
     (root / "reports" / "report_payload.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
-

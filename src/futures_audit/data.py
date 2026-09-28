@@ -34,6 +34,10 @@ METADATA_MARKERS = {
 USER_AGENT = "futures-strategy-audit/0.1 (+public research; no credentials)"
 
 
+class NoTargetContractsError(ValueError):
+    """The official response exists but contains no required delivery contracts."""
+
+
 @dataclass(frozen=True)
 class SourceRecord:
     provider: str
@@ -86,6 +90,16 @@ def _weekdays(start: dt.date, end: dt.date) -> list[dt.date]:
         for offset in range((end - start).days + 1)
         if (start + dt.timedelta(days=offset)).weekday() < 5
     ]
+
+
+def _use_cffex_cache(month: str, requested_end: dt.date) -> bool:
+    """Completed monthly archives are immutable; the requested month is not."""
+    return month != requested_end.strftime("%Y%m")
+
+
+def _use_shfe_cache(day: dt.date, requested_end: dt.date) -> bool:
+    """Recheck the trailing week because a same-day 404 can later become data."""
+    return day < requested_end - dt.timedelta(days=7)
 
 
 def _source_record(provider: str, url: str, observed: str, payload: bytes | None, status: str) -> SourceRecord:
@@ -192,7 +206,7 @@ def _parse_shfe_day(payload: bytes, requested_date: dt.date) -> tuple[list[dict]
             }
         )
     if not rows:
-        raise ValueError(f"No CU/RB delivery contracts in SHFE {expected}")
+        raise NoTargetContractsError(f"No CU/RB delivery contracts in SHFE {expected}")
     return rows, requested_date.isoformat()
 
 
@@ -206,11 +220,12 @@ def acquire_exchange_data(start: dt.date, end: dt.date, raw_dir: Path, workers: 
     all_rows: list[dict] = []
     cffex_dates: set[str] = set()
     shfe_dates: set[str] = set()
+    shfe_no_target_dates: list[str] = []
 
     def fetch_cffex(month: str) -> tuple[str, bytes | None, str, str]:
         url = CFFEX_MONTH_URL.format(month=month)
         cache = cffex_dir / f"{month}.zip"
-        if cache.exists():
+        if cache.exists() and _use_cffex_cache(month, end):
             return month, cache.read_bytes(), "cache", url
         payload, status = _fetch(url, "http://www.cffex.com.cn/cn/lssjxz.html")
         if payload is not None:
@@ -234,13 +249,15 @@ def acquire_exchange_data(start: dt.date, end: dt.date, raw_dir: Path, workers: 
         url = SHFE_DAY_URL.format(date=date_text)
         cache = shfe_dir / f"{date_text}.json"
         missing = shfe_dir / f"{date_text}.missing"
-        if cache.exists():
+        use_cache = _use_shfe_cache(day, end)
+        if cache.exists() and use_cache:
             return day, cache.read_bytes(), "cache", url
-        if missing.exists():
+        if missing.exists() and use_cache:
             return day, None, "http_404", url
         payload, status = _fetch(url, "https://www.shfe.com.cn/reports/tradedata/dailyandweeklydata/")
         if payload is not None:
             cache.write_bytes(payload)
+            missing.unlink(missing_ok=True)
         elif status == "http_404":
             missing.write_text("official HTTP 404\n", encoding="utf-8")
         return day, payload, status, url
@@ -250,10 +267,18 @@ def acquire_exchange_data(start: dt.date, end: dt.date, raw_dir: Path, workers: 
         successful_shfe = 0
         for completed, future in enumerate(concurrent.futures.as_completed(futures), start=1):
             day, payload, status, url = future.result()
-            records.append(_source_record("SHFE", url, day.isoformat(), payload, status))
             if payload is None:
+                records.append(_source_record("SHFE", url, day.isoformat(), payload, status))
+                if status != "http_404":
+                    raise RuntimeError(f"SHFE required date probe failed: {day.isoformat()} ({status})")
                 continue
-            rows, observed = _parse_shfe_day(payload, day)
+            try:
+                rows, observed = _parse_shfe_day(payload, day)
+            except NoTargetContractsError:
+                records.append(_source_record("SHFE", url, day.isoformat(), payload, "no_target_contract_rows"))
+                shfe_no_target_dates.append(day.isoformat())
+                continue
+            records.append(_source_record("SHFE", url, day.isoformat(), payload, status))
             all_rows.extend(rows)
             shfe_dates.add(observed)
             successful_shfe += 1
@@ -282,6 +307,12 @@ def acquire_exchange_data(start: dt.date, end: dt.date, raw_dir: Path, workers: 
         raise RuntimeError(
             "Exchange calendar mismatch inside shared coverage: "
             f"CFFEX-only={unexplained_cffex[:10]}, SHFE-only={unexplained_shfe[:10]}"
+        )
+    interior_no_target = [value for value in shfe_no_target_dates if value <= interior_end]
+    if interior_no_target:
+        raise RuntimeError(
+            "SHFE returned no CU/RB delivery contracts inside shared coverage: "
+            f"{interior_no_target[:10]}"
         )
     metadata_summary: dict[str, object] = {}
     metadata_dir = raw_dir / "metadata"
@@ -350,6 +381,11 @@ def acquire_exchange_data(start: dt.date, end: dt.date, raw_dir: Path, workers: 
             "common": {"start": min(common_dates), "end": max(common_dates), "trading_days": len(common_dates)},
         },
         "calendar_gaps": {"CFFEX_only": only_cffex, "SHFE_only": only_shfe},
+        "trailing_no_target_contract_rows": sorted(shfe_no_target_dates),
+        "cache_policy": {
+            "CFFEX": "reuse completed months; always refetch the requested end month",
+            "SHFE": "reuse observations older than seven days; always re-probe the trailing seven days",
+        },
         "contract_metadata": metadata_summary,
         "sources": [asdict(record) for record in sorted(records, key=lambda item: (item.provider, item.observation_date))],
     }

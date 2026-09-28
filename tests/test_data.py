@@ -1,10 +1,18 @@
+import datetime as dt
 import io
 import json
 import zipfile
 
 import pandas as pd
+import pytest
 
-from futures_audit.data import _parse_cffex_month, _parse_shfe_day
+from futures_audit.data import (
+    NoTargetContractsError,
+    _parse_cffex_month,
+    _parse_shfe_day,
+    _use_cffex_cache,
+    _use_shfe_cache,
+)
 
 
 def test_parse_cffex_delivery_contracts_only():
@@ -35,3 +43,18 @@ def test_parse_shfe_delivery_contracts_only():
     assert observed == "2025-01-02"
     assert rows[0]["contract"] == "CU2503"
     assert rows[0]["settle"] == 70020
+
+
+def test_parse_shfe_rejects_response_without_target_contracts():
+    payload = json.dumps({"report_date": "20260928", "o_curinstrument": []}).encode()
+    with pytest.raises(NoTargetContractsError):
+        _parse_shfe_day(payload, dt.date(2026, 9, 28))
+
+
+def test_cache_policy_refreshes_mutable_exchange_observations():
+    requested_end = dt.date(2026, 9, 28)
+    assert _use_cffex_cache("202608", requested_end)
+    assert not _use_cffex_cache("202609", requested_end)
+    assert _use_shfe_cache(dt.date(2026, 9, 20), requested_end)
+    assert not _use_shfe_cache(dt.date(2026, 9, 21), requested_end)
+    assert not _use_shfe_cache(requested_end, requested_end)

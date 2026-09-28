@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -79,9 +80,19 @@ def validate_outputs(root: Path) -> None:
         raise AssertionError("Published strategy set is incomplete or unexpected")
     if manifest["calendar_gaps"]["CFFEX_only"] or manifest["calendar_gaps"]["SHFE_only"]:
         raise AssertionError("Exchange calendar gaps remain unresolved")
-    successful = [item for item in manifest["sources"] if item["status"] in {"ok", "cache"}]
-    if not successful or any(not item["sha256"] for item in successful):
-        raise AssertionError("Successful source observations must have SHA-256 hashes")
+    allowed_statuses = {"ok", "cache", "http_404", "no_target_contract_rows"}
+    unexpected = sorted({item["status"] for item in manifest["sources"]} - allowed_statuses)
+    if unexpected:
+        raise AssertionError(f"Unexpected source status: {unexpected}")
+    payload_records = [
+        item for item in manifest["sources"]
+        if item["status"] in {"ok", "cache", "no_target_contract_rows"}
+    ]
+    if not payload_records or any(not item["sha256"] for item in payload_records):
+        raise AssertionError("Every source response payload must have a SHA-256 hash")
+    common_end = manifest["coverage"]["common"]["end"]
+    if any(value <= common_end for value in manifest["trailing_no_target_contract_rows"]):
+        raise AssertionError("No-target SHFE response appears inside common source coverage")
     if any("tushare" in item["requested_url"].lower() for item in manifest["sources"]):
         raise AssertionError("Forbidden provider in production manifest")
     report = report_path.read_text(encoding="utf-8")
@@ -92,6 +103,8 @@ def validate_outputs(root: Path) -> None:
     missing = [section for section in required if section not in report]
     if missing:
         raise AssertionError(f"Report is missing sections: {missing}")
+    if "<svg" not in report or re.search(r'<(?:script|img|link)[^>]+(?:src|href)=["\']https?://', report, re.I):
+        raise AssertionError("Report must contain embedded figures and no external assets")
     for strategy_id, values in metrics.items():
         if values["sample_end"] != manifest["coverage"]["common"]["end"]:
             raise AssertionError(f"{strategy_id} is stale relative to common source coverage")
@@ -102,4 +115,3 @@ def validate_outputs(root: Path) -> None:
         nav = pd.read_csv(root / "outputs" / strategy_id / "nav.csv")
         if nav.empty or not (nav["equity"].diff().abs().fillna(0) > 0).any():
             raise AssertionError(f"{strategy_id} did not produce a nontrivial recomputed NAV")
-
