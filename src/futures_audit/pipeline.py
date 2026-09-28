@@ -80,13 +80,15 @@ def validate_outputs(root: Path) -> None:
         raise AssertionError("Published strategy set is incomplete or unexpected")
     if manifest["calendar_gaps"]["CFFEX_only"] or manifest["calendar_gaps"]["SHFE_only"]:
         raise AssertionError("Exchange calendar gaps remain unresolved")
-    allowed_statuses = {"ok", "cache", "http_404", "no_target_contract_rows"}
+    allowed_statuses = {
+        "ok", "ok_after_extended_retry", "cache", "http_404", "no_target_contract_rows"
+    }
     unexpected = sorted({item["status"] for item in manifest["sources"]} - allowed_statuses)
     if unexpected:
         raise AssertionError(f"Unexpected source status: {unexpected}")
     payload_records = [
         item for item in manifest["sources"]
-        if item["status"] in {"ok", "cache", "no_target_contract_rows"}
+        if item["status"] in {"ok", "ok_after_extended_retry", "cache", "no_target_contract_rows"}
     ]
     if not payload_records or any(not item["sha256"] for item in payload_records):
         raise AssertionError("Every source response payload must have a SHA-256 hash")

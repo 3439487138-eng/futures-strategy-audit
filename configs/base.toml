@@ -6,7 +6,7 @@ annual_risk_target = 0.20
 max_margin_fraction = 0.60
 max_gross_leverage = 4.0
 roll_buffer_calendar_days = 10
-workers = 6
+workers = 4
 
 [signal]
 ewmac_fast_spans = [2, 4, 8, 16, 32, 64]

@@ -1,6 +1,7 @@
 import datetime as dt
 import io
 import json
+import threading
 import zipfile
 
 import pandas as pd
@@ -10,6 +11,7 @@ from futures_audit.data import (
     NoTargetContractsError,
     _parse_cffex_month,
     _parse_shfe_day,
+    _fetch_shfe_with_extended_retry,
     _use_cffex_cache,
     _use_shfe_cache,
 )
@@ -58,3 +60,15 @@ def test_cache_policy_refreshes_mutable_exchange_observations():
     assert _use_shfe_cache(dt.date(2026, 9, 20), requested_end)
     assert not _use_shfe_cache(dt.date(2026, 9, 21), requested_end)
     assert not _use_shfe_cache(requested_end, requested_end)
+
+
+def test_shfe_extended_retry_is_serial_and_auditable(monkeypatch):
+    responses = iter([(None, "failed_URLError"), (b"official", "ok")])
+
+    def fake_fetch(url, referer, attempts=5, timeout=90):
+        return next(responses)
+
+    monkeypatch.setattr("futures_audit.data._fetch", fake_fetch)
+    payload, status = _fetch_shfe_with_extended_retry("https://example.invalid", threading.Lock())
+    assert payload == b"official"
+    assert status == "ok_after_extended_retry"

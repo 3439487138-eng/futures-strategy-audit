@@ -8,6 +8,7 @@ import io
 import json
 import random
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -73,6 +74,21 @@ def _fetch(url: str, referer: str, attempts: int = 5, timeout: int = 90) -> tupl
         if attempt + 1 < attempts:
             time.sleep(min(8.0, (2**attempt) + random.random()))
     return None, f"failed_{last_error}"
+
+
+def _fetch_shfe_with_extended_retry(
+    url: str, retry_lock: threading.Lock
+) -> tuple[bytes | None, str]:
+    """Serialize an extended second attempt after ordinary retries are exhausted."""
+    referer = "https://www.shfe.com.cn/reports/tradedata/dailyandweeklydata/"
+    payload, status = _fetch(url, referer)
+    if payload is not None or status == "http_404":
+        return payload, status
+    with retry_lock:
+        payload, status = _fetch(url, referer, attempts=8, timeout=120)
+    if payload is not None:
+        return payload, "ok_after_extended_retry"
+    return None, status
 
 
 def _month_range(start: dt.date, end: dt.date) -> list[str]:
@@ -221,6 +237,7 @@ def acquire_exchange_data(start: dt.date, end: dt.date, raw_dir: Path, workers: 
     cffex_dates: set[str] = set()
     shfe_dates: set[str] = set()
     shfe_no_target_dates: list[str] = []
+    shfe_retry_lock = threading.Lock()
 
     def fetch_cffex(month: str) -> tuple[str, bytes | None, str, str]:
         url = CFFEX_MONTH_URL.format(month=month)
@@ -254,7 +271,7 @@ def acquire_exchange_data(start: dt.date, end: dt.date, raw_dir: Path, workers: 
             return day, cache.read_bytes(), "cache", url
         if missing.exists() and use_cache:
             return day, None, "http_404", url
-        payload, status = _fetch(url, "https://www.shfe.com.cn/reports/tradedata/dailyandweeklydata/")
+        payload, status = _fetch_shfe_with_extended_retry(url, shfe_retry_lock)
         if payload is not None:
             cache.write_bytes(payload)
             missing.unlink(missing_ok=True)
