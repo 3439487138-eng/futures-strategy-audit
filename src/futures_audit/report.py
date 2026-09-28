@@ -4,6 +4,8 @@ import datetime as dt
 import html
 import json
 import math
+import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -21,6 +23,9 @@ def _fmt_number(value: float | None) -> str:
 
 
 def _git_sha(root: Path) -> str:
+    environment_sha = os.environ.get("GITHUB_SHA", "").strip()
+    if re.fullmatch(r"[0-9a-fA-F]{40}", environment_sha):
+        return environment_sha.lower()
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL
