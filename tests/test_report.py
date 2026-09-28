@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 
 from futures_audit.report import _git_sha, _svg_series
@@ -10,12 +12,12 @@ def test_svg_series_is_embedded():
     assert "https://" not in chart
 
 
-def test_git_sha_prefers_valid_actions_environment(monkeypatch, tmp_path):
+def test_git_sha_prefers_valid_actions_environment(monkeypatch):
     sha = "a" * 40
     monkeypatch.setenv("GITHUB_SHA", sha.upper())
-    assert _git_sha(tmp_path) == sha
+    assert _git_sha(Path("not-used-when-environment-sha-is-valid")) == sha
 
 
-def test_git_sha_rejects_non_sha_environment(monkeypatch, tmp_path):
+def test_git_sha_rejects_non_sha_environment(monkeypatch):
     monkeypatch.setenv("GITHUB_SHA", "not-a-commit")
-    assert _git_sha(tmp_path) == "uncommitted-local-run"
+    assert _git_sha(Path("nonexistent-not-a-repository")) == "uncommitted-local-run"

@@ -30,7 +30,7 @@ def _git_sha(root: Path) -> str:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL
         ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, OSError):
         return "uncommitted-local-run"
 
 
