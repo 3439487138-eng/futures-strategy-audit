@@ -8,8 +8,8 @@
     "status": "adapted",
     "mode": "practical adaptation",
     "sample": "2025-01-02 to 2026-09-24",
-    "generated_at": "2026-09-28T02:37:44+00:00",
-    "commit_sha": "24761db08a0918d887ed5a50e10cafb55e95c599",
+    "generated_at": "2026-09-28T02:44:50+00:00",
+    "commit_sha": "390e83874c546348e3efc897c63e2ea6645e851d",
     "command": "python -m futures_audit.cli run --config configs/base.toml"
   },
   "summary": "Three strategies were recomputed from official delivery-contract data.",
